@@ -23,6 +23,14 @@
 #include "LFGMgr.h"
 //#include "SceneHelper.h"
 
+enum WatersOfFarseeing
+{
+    QUEST_THE_EYE_OF_THE_STORM_HORDE    = 28805,
+    QUEST_THE_EYE_OF_THE_STORM_ALLIANCE = 28826,
+    NPC_WATERS_OF_FARSEEING_CREDIT      = 50054,
+    WATERS_OF_FARSEEING_DURATION        = 5 * IN_MILLISECONDS
+};
+
 class spell_waters_of_farseeing_94687 : public SpellScriptLoader
 {
 public:
@@ -32,12 +40,15 @@ public:
     {
         PrepareAuraScript(spell_waters_of_farseeing_94687_AuraScript);
 
-        void OnApply(AuraEffect const* aurEff, AuraEffectHandleModes mode)
+        void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
         {
-            if (Unit* caster = GetCaster())
-                if (Player* player = caster->ToPlayer())
-                    if (player->GetQuestStatus(28805) == QUEST_STATUS_INCOMPLETE || player->GetQuestStatus(28826) == QUEST_STATUS_INCOMPLETE)
-                        player->KilledMonsterCredit(50054);
+            if (Player* player = GetTarget()->ToPlayer())
+                if (player->GetQuestStatus(QUEST_THE_EYE_OF_THE_STORM_HORDE) == QUEST_STATUS_INCOMPLETE ||
+                    player->GetQuestStatus(QUEST_THE_EYE_OF_THE_STORM_ALLIANCE) == QUEST_STATUS_INCOMPLETE)
+                    player->KilledMonsterCredit(NPC_WATERS_OF_FARSEEING_CREDIT);
+
+            GetAura()->SetMaxDuration(WATERS_OF_FARSEEING_DURATION);
+            GetAura()->SetDuration(WATERS_OF_FARSEEING_DURATION);
         }
 
         void Register()
