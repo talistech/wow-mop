@@ -171,6 +171,125 @@ uint32 const MasterySpells[MAX_CLASSES] =
     87491,  // Druid
 };
 
+namespace
+{
+    constexpr uint32 GOSSIP_SENDER_BATTLE_PET_HEAL = 0xBACA;
+
+    bool IsOnTheMendHealer(uint32 entry)
+    {
+        switch (entry)
+        {
+            case 9980:  // Shelby Stoneflint
+            case 10051: // Seriadne
+            case 17485: // Esbina
+            case 9987:  // Shoja'my
+            case 10050: // Seikwa
+            case 10055: // Morganus
+            case 16185: // Anathos
+            case 10085: // Jaelysia
+            case 45789: // Bezzil
+            case 47764: // Murog
+            case 11069: // Jenova Stoneshield
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    bool IsOnTheMendHealCredit(uint32 entry)
+    {
+        switch (entry)
+        {
+            case 64320:
+            case 65020:
+            case 65041:
+            case 65179:
+            case 65180:
+            case 65184:
+            case 65193:
+            case 65198:
+            case 65199:
+            case 65200:
+            case 65212:
+            case 65214:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    constexpr uint32 NPC_BATTLE_PET_LEVEL_3_CREDIT = 65876;
+
+    bool HasOnTheMendBattlePetHealCredit(Player* player, Creature const* creature)
+    {
+        if (!player || !creature)
+            return false;
+
+        if (!IsOnTheMendHealer(creature->GetEntry()))
+            return false;
+
+        for (auto const& questStatus : player->getQuestStatusMap())
+        {
+            if (questStatus.second.Status != QUEST_STATUS_INCOMPLETE)
+                continue;
+
+            Quest const* quest = sObjectMgr->GetQuestTemplate(questStatus.first);
+            if (!quest)
+                continue;
+
+            for (QuestObjective const& questObjective : quest->Objectives)
+                if (questObjective.Type == QUEST_OBJECTIVE_MONSTER &&
+                    IsOnTheMendHealCredit(questObjective.ObjectID) &&
+                    player->GetQuestObjectiveCounter(questObjective.ID) < uint32(questObjective.Amount))
+                    return true;
+        }
+
+        return false;
+    }
+
+    bool RewardOnTheMendBattlePetHealCredit(Player* player, Creature const* creature)
+    {
+        if (!HasOnTheMendBattlePetHealCredit(player, creature))
+            return false;
+
+        bool credited = false;
+        for (auto const& questStatus : player->getQuestStatusMap())
+        {
+            if (questStatus.second.Status != QUEST_STATUS_INCOMPLETE)
+                continue;
+
+            Quest const* quest = sObjectMgr->GetQuestTemplate(questStatus.first);
+            if (!quest)
+                continue;
+
+            for (QuestObjective const& questObjective : quest->Objectives)
+            {
+                if (questObjective.Type != QUEST_OBJECTIVE_MONSTER ||
+                    !IsOnTheMendHealCredit(questObjective.ObjectID) ||
+                    player->GetQuestObjectiveCounter(questObjective.ID) >= uint32(questObjective.Amount))
+                    continue;
+
+                player->KilledMonsterCredit(questObjective.ObjectID);
+                credited = true;
+            }
+        }
+
+        return credited;
+    }
+
+    bool HasBattlePetAtLeastLevel(Player* player, uint8 level)
+    {
+        if (!player)
+            return false;
+
+        for (BattlePet const* battlePet : player->GetBattlePetMgr().BattlePets)
+            if (battlePet && battlePet->GetLevel() >= level)
+                return true;
+
+        return false;
+    }
+}
+
 static uint8 GetOtherRune(uint8 index)
 {
     if (index == 0)
@@ -15603,6 +15722,15 @@ void Player::PrepareGossipMenu(WorldObject* source, uint32 menuId /*= 0*/, bool 
             PlayerTalkClass->GetGossipMenu().AddGossipMenuItemData(itr->second.OptionID, itr->second.ActionMenuID, itr->second.ActionPoiID);
         }
     }
+
+    if (Creature* creature = source->ToCreature())
+    {
+        if (HasOnTheMendBattlePetHealCredit(this, creature))
+        {
+            uint32 itemId = PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_CHAT, "Heal and revive my battle pets.", GOSSIP_SENDER_BATTLE_PET_HEAL, GOSSIP_OPTION_GOSSIP, "", 0);
+            PlayerTalkClass->GetGossipMenu().AddGossipMenuItemData(itemId, 1, 0);
+        }
+    }
 }
 
 void Player::SendPreparedGossip(WorldObject* source)
@@ -15671,6 +15799,38 @@ void Player::OnGossipSelect(WorldObject* source, uint32 gossipListId, uint32 men
     {
         case GOSSIP_OPTION_GOSSIP:
         {
+            if (item->Sender == GOSSIP_SENDER_BATTLE_PET_HEAL)
+            {
+                PlayerTalkClass->SendCloseGossip();
+
+                Creature const* creature = source->ToCreature();
+                if (!menuItemData->GossipActionMenuId || !HasOnTheMendBattlePetHealCredit(this, creature))
+                    break;
+
+                BattlePetMgr& battlePetMgr = GetBattlePetMgr();
+                bool healedAny = false;
+                for (BattlePet* battlePet : battlePetMgr.BattlePets)
+                {
+                    if (!battlePet)
+                        continue;
+
+                    battlePet->SetCurrentHealth(battlePet->GetMaxHealth());
+                    battlePetMgr.SendBattlePetUpdate(battlePet, false);
+                    healedAny = true;
+                }
+
+                if (healedAny)
+                {
+                    RewardOnTheMendBattlePetHealCredit(this, creature);
+
+                    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+                    battlePetMgr.SaveToDb(trans);
+                    CharacterDatabase.CommitTransaction(trans);
+                }
+
+                break;
+            }
+
             if (menuItemData->GossipActionPoi)
                 PlayerTalkClass->SendPointOfInterest(menuItemData->GossipActionPoi);
 
@@ -16412,6 +16572,10 @@ void Player::AddQuest(Quest const* quest, Object* questGiver)
     }
 
     SendQuestUpdate(questId);
+
+    for (QuestObjective const& questObjective : quest->Objectives)
+        if (questObjective.Type == QUEST_OBJECTIVE_MONSTER && questObjective.ObjectID == NPC_BATTLE_PET_LEVEL_3_CREDIT && HasBattlePetAtLeastLevel(this, 3))
+            KilledMonsterCredit(NPC_BATTLE_PET_LEVEL_3_CREDIT);
 
     sScriptMgr->OnQuestStatusChange(this, quest, oldStatus, questStatusData.Status);
     sScriptMgr->OnPlayerQuestAdded(this, quest);

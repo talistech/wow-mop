@@ -20,6 +20,7 @@
 #include "BattlePetMgr.h"
 #include "BattlePetSpawnMgr.h"
 #include "Player.h"
+#include "QuestDef.h"
 #include "Random.h"
 
 void PetBattleTeam::AddPlayer(Player* player)
@@ -52,18 +53,25 @@ void PetBattleTeam::AddPlayer(Player* player)
 
 void PetBattleTeam::AddWildBattlePet(Creature* creature)
 {
-    auto battlePet = sBattlePetSpawnMgr->GetWildBattlePet(creature);
-    ASSERT(battlePet);
+    BattlePetTeamStore battlePets;
+    if (sBattlePetSpawnMgr->IsTamerBattlePet(creature))
+        sBattlePetSpawnMgr->GetTamerBattlePets(creature, battlePets);
+    else if (auto battlePet = sBattlePetSpawnMgr->GetWildBattlePet(creature))
+        battlePets.push_back(battlePet);
 
-    battlePet->SetBattleInfo(m_teamIndex, ConvertToGlobalIndex(BattlePets.size()));
+    ASSERT(!battlePets.empty());
 
-    BattlePets.push_back(battlePet);
-
-    // only update creature if it's the first to the team
-    if (!m_wildBattlePet)
+    for (auto battlePet : battlePets)
     {
-        m_wildBattlePet = creature;
-        SetActivePet(battlePet);
+        battlePet->SetBattleInfo(m_teamIndex, ConvertToGlobalIndex(BattlePets.size()));
+        BattlePets.push_back(battlePet);
+
+        // only update creature if it's the first to the team
+        if (!m_wildBattlePet)
+        {
+            m_wildBattlePet = creature;
+            SetActivePet(battlePet);
+        }
     }
 }
 
@@ -114,6 +122,10 @@ uint8 PetBattleTeam::GetTrapStatus() const
         return PET_BATTLE_TRAP_STATUS_DISABLED;
 
     auto &battlePetMgr = m_owner->GetBattlePetMgr();
+
+    if (Creature* opponentCreature = m_petBattle->Opponent()->GetWildBattlePet())
+        if (sBattlePetSpawnMgr->IsTamerBattlePet(opponentCreature))
+            return PET_BATTLE_TRAP_STATUS_CANT_TRAP_NPC_PET;
 
     // player needs to have a trap ability
     if (!battlePetMgr.GetTrapAbility())
@@ -322,6 +334,18 @@ void PetBattleTeam::TurnFinished()
     // Do next turn for PvE team
     if (!m_ready && !m_owner)
     {
+        if (!m_activePet->IsAlive())
+        {
+            BattlePetStore avaliablePets;
+            GetAvaliablePets(avaliablePets);
+
+            if (avaliablePets.size())
+            {
+                SetPendingMove(PET_BATTLE_MOVE_TYPE_SWAP_DEAD_PET, 0, avaliablePets.front());
+                return;
+            }
+        }
+
         std::vector<uint32> avaliableAbilities;
         for (uint8 i = 0; i < BATTLE_PET_MAX_ABILITIES; i++)
             if (m_activePet->Abilities[i])
@@ -518,6 +542,7 @@ void PetBattle::EndBattle(PetBattleTeam* lostTeam, bool forfeit)
                         level -= 2;
 
                     battlePetMgr.Create(battlePet->GetSpecies(), level, battlePet->GetBreed(), battlePet->GetQuality());
+                    player->KilledMonsterCredit(65356);
                     player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_CAPTURE_BATTLE_PET, battlePet->GetSpecies(), uint32(1 << battlePet->GetFamilty()), 0, player);
                     player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_CAPTURE_BATTLE_PET2, 1, 0, 0, player);
                 }
@@ -525,6 +550,19 @@ void PetBattle::EndBattle(PetBattleTeam* lostTeam, bool forfeit)
 
             if (team == m_winningTeam)
             {
+                player->KilledMonsterCredit(65355);
+
+                if (GetType() == PET_BATTLE_TYPE_PVE)
+                {
+                    if (Creature* opponentCreature = Opponent()->GetWildBattlePet())
+                        player->QuestObjectiveSatisfy(opponentCreature->GetEntry(), 1, QUEST_OBJECTIVE_WINPETBATTLEAGAINSTNPC, opponentCreature->GetGUID().GetRawValue());
+
+                    for (BattlePet* opponentBattlePet : Opponent()->BattlePets)
+                        player->QuestObjectiveSatisfy(opponentBattlePet->GetSpecies(), 1, QUEST_OBJECTIVE_DEFEATBATTLEPET, 0);
+                }
+                else
+                    player->QuestObjectiveSatisfy(0, 1, QUEST_OBJECTIVE_WINPVPPETBATTLES, 0);
+
                 // Idk how this supposed to work. Comments on wowhead say what: only frist pet, non-pvp, don't swap pet.
                 // At current time it's uselss because in pve battles opponenet is a single pet. But nevertheless...
                 uint32 familyMask = 0;

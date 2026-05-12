@@ -25,6 +25,11 @@
 #include "BattlePetSpawnMgr.h"
 #include "PetBattle.h"
 
+namespace
+{
+    constexpr uint32 NPC_BATTLE_PET_LEVEL_3_CREDIT = 65876;
+}
+
 BattlePet::~BattlePet()
 {
 }
@@ -263,6 +268,12 @@ void BattlePet::SetXP(uint16 xpGain)
     m_dbState = BATTLE_PET_DB_STATE_SAVE;
 }
 
+void BattlePet::SetXPValue(uint16 xp)
+{
+    m_xp = m_level == BATTLE_PET_MAX_LEVEL ? 0 : xp;
+    m_dbState = BATTLE_PET_DB_STATE_SAVE;
+}
+
 void BattlePet::SetLevel(uint8 level)
 {
     // make sure level is valid
@@ -280,6 +291,9 @@ void BattlePet::SetLevel(uint8 level)
     if (m_level >= 5 && !m_owner->GetBattlePetMgr().HasLoadoutFlag(BATTLE_PET_LOADOUT_SLOT_FLAG_SLOT_3))
         m_owner->GetBattlePetMgr().UnlockLoadoutSlot(BATTLE_PET_LOADOUT_SLOT_3);
 
+    if (m_level >= 3)
+        m_owner->KilledMonsterCredit(NPC_BATTLE_PET_LEVEL_3_CREDIT);
+
     CalculateStats(true);
 
     // update world object if battle pet is currently summoned
@@ -294,6 +308,42 @@ void BattlePet::SetLevel(uint8 level)
     }
 
     GetOwner()->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_REACH_BATTLE_PET_LEVEL, level, uint32(1 << GetFamilty()));
+}
+
+void BattlePet::SetQuality(uint8 quality)
+{
+    if (quality == m_quality)
+        return;
+
+    m_quality = quality;
+    InitialiseStates(true);
+
+    if (m_owner->GetBattlePetMgr().GetCurrentSummonId() == m_id)
+    {
+        if (auto worldPet = m_owner->GetBattlePetMgr().GetCurrentSummon())
+        {
+            worldPet->SetHealth(m_curHealth);
+            worldPet->SetMaxHealth(m_maxHealth);
+        }
+    }
+}
+
+void BattlePet::SetBreed(uint8 breed)
+{
+    if (breed == m_breed)
+        return;
+
+    m_breed = breed;
+    InitialiseStates(true);
+
+    if (m_owner->GetBattlePetMgr().GetCurrentSummonId() == m_id)
+    {
+        if (auto worldPet = m_owner->GetBattlePetMgr().GetCurrentSummon())
+        {
+            worldPet->SetHealth(m_curHealth);
+            worldPet->SetMaxHealth(m_maxHealth);
+        }
+    }
 }
 
 uint16 BattlePet::GetSpeed() const

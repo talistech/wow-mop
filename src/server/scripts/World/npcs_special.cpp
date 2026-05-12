@@ -45,8 +45,11 @@ EndContentData */
 #include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
 #include "ScriptedEscortAI.h"
+#include "BattlePetMgr.h"
+#include "BattlePetSpawnMgr.h"
 #include "ObjectMgr.h"
 #include "ScriptMgr.h"
+#include "PetBattle.h"
 #include "World.h"
 #include "PassiveAI.h"
 #include "GameEventMgr.h"
@@ -59,6 +62,7 @@ EndContentData */
 #include "BlackMarketMgr.h"
 #include "CombatAI.h"
 #include "Random.h"
+#include "WorldSession.h"
 
 /*########
 # npc_air_force_bots
@@ -3303,6 +3307,137 @@ struct npc_pandaren_firework_launcher : public ScriptedAI
     }
 };
 
+class npc_battle_pet_tamer : public CreatureScript
+{
+public:
+    npc_battle_pet_tamer() : CreatureScript("npc_battle_pet_tamer") { }
+
+    bool OnGossipHello(Player* player, Creature* creature) override
+    {
+        if (creature->IsQuestGiver())
+            player->PrepareQuestMenu(creature->GetGUID());
+
+        if (sWorld->getBoolConfig(CONFIG_PET_BATTLES_ENABLED) && sBattlePetSpawnMgr->IsTamerBattlePet(creature))
+            player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "Let's battle!", GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
+
+        player->SEND_GOSSIP_MENU(player->GetGossipTextId(creature), creature->GetGUID());
+        return true;
+    }
+
+    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
+    {
+        player->PlayerTalkClass->ClearMenus();
+
+        if (action != GOSSIP_ACTION_INFO_DEF + 1)
+            return true;
+
+        player->CLOSE_GOSSIP_MENU();
+        StartTamerBattle(player, creature);
+        return true;
+    }
+
+private:
+    static void StartTamerBattle(Player* player, Creature* tamer)
+    {
+        WorldSession* session = player->GetSession();
+
+        if (!sWorld->getBoolConfig(CONFIG_PET_BATTLES_ENABLED))
+            return;
+
+        if (!player->IsAlive())
+        {
+            session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_DEAD);
+            return;
+        }
+
+        if (player->IsInCombat())
+        {
+            session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_ALREADY_IN_COMBAT);
+            return;
+        }
+
+        if (sPetBattleSystem->GetPlayerPetBattle(player->GetGUID()))
+        {
+            session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_ALREADY_IN_PETBATTLE);
+            return;
+        }
+
+        if (!sBattlePetSpawnMgr->IsTamerBattlePet(tamer))
+        {
+            session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_NOT_VALID_TARGET);
+            return;
+        }
+
+        if (!tamer->IsWithinDistInMap(player, PETBATTLE_INTERACTION_DIST))
+        {
+            session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_TOO_FAR);
+            return;
+        }
+
+        if (!sBattlePetSpawnMgr->GetWildBattlePet(tamer))
+        {
+            session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_INVALID_TARGET);
+            return;
+        }
+
+        BattlePetMgr& battlePetMgr = player->GetBattlePetMgr();
+        if (!battlePetMgr.GetLoadoutSlot(0))
+        {
+            session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_NEED_AT_LEAST_1_PET_IN_SLOT);
+            return;
+        }
+
+        bool allDead = true;
+        for (uint8 i = 0; i < BATTLE_PET_MAX_LOADOUT_SLOTS; ++i)
+            if (BattlePet* battlePet = battlePetMgr.GetBattlePet(battlePetMgr.GetLoadoutSlot(i)))
+                if (battlePet->IsAlive())
+                {
+                    allDead = false;
+                    break;
+                }
+
+        if (allDead)
+        {
+            session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_PET_ALL_DEAD);
+            return;
+        }
+
+        PetBattleRequest request;
+        request.OpponentGuid = tamer->GetGUID();
+        request.LocationResult = 0;
+        request.BattleOrigin = G3D::Vector3(player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
+        request.TeamPositions[PET_BATTLE_TEAM_CHALLANGER] = G3D::Vector3(player->GetPositionX(), player->GetPositionY(), player->GetPositionZ());
+        request.TeamPositions[PET_BATTLE_TEAM_OPPONENT] = G3D::Vector3(tamer->GetPositionX(), tamer->GetPositionY(), tamer->GetPositionZ());
+        request.BattleFacing = player->GetAngle(tamer);
+        request.Type = PET_BATTLE_TYPE_PVE;
+        request.Challenger = player;
+        request.Opponent = tamer;
+
+        for (uint8 i = 0; i < PET_BATTLE_MAX_TEAMS; ++i)
+        {
+            G3D::Vector3& pos = request.TeamPositions[i];
+            G3D::Vector3& origin = request.BattleOrigin;
+            if (player->GetMap()->getObjectHitPos(player->GetPhaseMask(), origin.x, origin.y, origin.z, pos.x, pos.y, pos.z, pos.x, pos.y, pos.z, 0.0f))
+            {
+                session->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_GROUND_NOT_ENOUGHT_SMOOTH);
+                return;
+            }
+        }
+
+        player->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_NPC);
+        player->SetTarget(tamer->GetGUID());
+        player->SetFacingTo(player->GetAngle(tamer));
+        player->SetControlled(true, UNIT_STATE_ROOT);
+
+        tamer->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC);
+        tamer->SetTarget(player->GetGUID());
+        tamer->SetControlled(true, UNIT_STATE_ROOT);
+
+        sBattlePetSpawnMgr->EnteredBattle(tamer);
+        sPetBattleSystem->Create(request);
+    }
+};
+
 void AddSC_npcs_special()
 {
     new npc_air_force_bots();
@@ -3345,4 +3480,5 @@ void AddSC_npcs_special()
     new creature_script<npc_sa_demolisher>("npc_sa_demolisher");
     new creature_script<npc_rogue_rare_npc>("npc_rogue_rare_npc");
     new creature_script<npc_pandaren_firework_launcher>("npc_pandaren_firework_launcher");
+    new npc_battle_pet_tamer();
 }
