@@ -1,5 +1,25 @@
--- Backfill battle pet wrapper quest progress that was missed before trainer
--- defeats awarded quest objective credit.
+-- Backfill battle pet quest progress that was missed before pet battle wins,
+-- trainer defeats, and wrapper quest objectives awarded credit.
+
+INSERT INTO character_queststatus_objective (guid, objectiveId, amount) VALUES
+(229, 268806, 1),
+(229, 269048, 1)
+ON DUPLICATE KEY UPDATE amount = GREATEST(character_queststatus_objective.amount, VALUES(`amount`));
+
+UPDATE character_queststatus qs
+SET qs.status = 1
+WHERE qs.guid = 229
+  AND qs.quest IN (31588, 31812)
+  AND qs.status = 3
+  AND NOT EXISTS (
+      SELECT 1
+      FROM world.quest_objective qo
+      LEFT JOIN character_queststatus_objective cqo
+        ON cqo.guid = qs.guid
+       AND cqo.objectiveId = qo.id
+      WHERE qo.questId = qs.quest
+        AND COALESCE(cqo.amount, 0) < qo.amount
+  );
 
 INSERT INTO character_queststatus_objective (guid, objectiveId, amount)
 SELECT qs.guid, wrapper_objective.id, wrapper_objective.amount
