@@ -67,6 +67,20 @@ public:
 typedef std::map<uint32, BattlePetSpawnZoneMgr> WildBattlePetZonePool;
 typedef std::map<uint32, WildBattlePetZonePool> WildBattlePetMapPool;
 
+struct BattlePetTamerTeamTemplate
+{
+    uint32 CreatureEntry;
+    uint16 Species;
+    uint8 Level;
+    uint8 Quality;
+    uint8 Breed;
+};
+
+typedef std::vector<BattlePetTamerTeamTemplate> BattlePetTamerTeamTemplateStore;
+typedef std::map<uint32, BattlePetTamerTeamTemplateStore> BattlePetTamerTeamTemplateMap;
+typedef std::vector<BattlePet*> BattlePetTeamStore;
+typedef std::map<ObjectGuid, BattlePetTeamStore> BattlePetTamerTeamStore;
+
 // handles global spawning of battle pets
 class BattlePetSpawnMgr
 {
@@ -82,6 +96,8 @@ public:
     void Update(uint32 diff);
 
     BattlePet* GetWildBattlePet(Creature* creature);
+    void GetTamerBattlePets(Creature* creature, BattlePetTeamStore& battlePets);
+    bool IsTamerBattlePet(Creature* creature);
 
     void OnAddToMap(Creature* creature);
     void OnRemoveFromMap(Creature* creature);
@@ -95,6 +111,8 @@ public:
 
 private:
     WildBattlePetMapPool m_battlePetMapPools;
+    BattlePetTamerTeamTemplateMap m_tamerBattlePetTemplates;
+    BattlePetTamerTeamStore m_tamerBattlePetInfo;
     uint32 m_updateTimer;
 };
 

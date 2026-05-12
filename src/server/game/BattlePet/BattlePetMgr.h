@@ -107,6 +107,7 @@ public:
     bool HasLoadoutFlag(uint8 flag) const { return (m_loadoutFlags & flag) != 0; };
     uint8 GetLoadoutFlags() const { return m_loadoutFlags; };
     void SetLoadoutFlag(uint8 flag);
+    void ClearLoadoutFlag(uint8 flag);
 
     void Create(uint32 speciesId, uint8 level = 1, uint8 breed = 0, uint8 quality = 0, bool ignoreChecks = false);
     void Delete(BattlePet* battlePet);

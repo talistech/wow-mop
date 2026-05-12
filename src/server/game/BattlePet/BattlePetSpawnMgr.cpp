@@ -20,15 +20,98 @@
 #include "DatabaseEnv.h"
 #include "DBCStores.h"
 #include "DB2Stores.h"
+#include "GridDefines.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+
+namespace
+{
+    uint16 const TAMER_FALLBACK_PET_SPECIES = 378; // Rabbit
+    uint8 const TAMER_MAX_TEAM_PETS = 3;
+
+    bool IsBattlePetTamerEntry(uint32 entry)
+    {
+        switch (entry)
+        {
+            case 63194: // Steven Lisbane
+            case 64330: // Julia Stevens
+            case 65648: // Old MacDonald
+            case 65651: // Lindsay
+            case 65655: // Eric Davidson
+            case 65656: // Bill Buckler
+            case 66126: // Zunta
+            case 66135: // Dagra the Fierce
+            case 66136: // Analynn
+            case 66137: // Zonya the Sadist
+            case 66352: // Traitor Gluk
+            case 66372: // Merda Stronghoof
+            case 66412: // Elena Flutterfly
+            case 66422: // Cassandra Kaboom
+            case 66436: // Grazzle the Great
+            case 66442: // Zoltan
+            case 66452: // Kela Grimtotem
+            case 66466: // Stone Cold Trixxy
+            case 66478: // David Kosse
+            case 66512: // Deiza Plaguehorn
+            case 66515: // Kortas Darkhammer
+            case 66518: // Everessa
+            case 66520: // Durin Darkhammer
+            case 66522: // Lydia Accoste
+            case 66550: // Nicki Tinytech
+            case 66551: // Ras'an
+            case 66552: // Narrok
+            case 66553: // Morulu The Elder
+            case 66557: // Bloodknight Antari
+            case 66635: // Beegle Blastfuse
+            case 66636: // Nearly Headless Jacob
+            case 66638: // Okrut Dragonwaste
+            case 66639: // Gutretch
+            case 66675: // Major Payne
+            case 66730: // Hyuna of the Shrines
+            case 66733: // Mo'ruk
+            case 66734: // Farmer Nishi
+            case 66738: // Courageous Yon
+            case 66739: // Wastewalker Shu
+            case 66741: // Aki the Chosen
+            case 66815: // Bordin Steadyfist
+            case 66819: // Brok
+            case 66822: // Goz Banefury
+            case 66824: // Obalis
+            case 66918: // Seeker Zusshi
+            case 67370: // Jeremy Feasel
+            case 68462: // Flowing Pandaren Spirit
+            case 68463: // Burning Pandaren Spirit
+            case 68464: // Whispering Pandaren Spirit
+            case 68465: // Thundering Pandaren Spirit
+            case 73626: // Little Tommy Newcomer
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    uint16 GetBattlePetSpeciesForCreature(uint32 creatureEntry)
+    {
+        for (uint32 i = 0; i < sBattlePetSpeciesStore.GetNumRows(); ++i)
+            if (auto speciesEntry = sBattlePetSpeciesStore.LookupEntry(i))
+                if (speciesEntry->NpcId == creatureEntry)
+                    return speciesEntry->SpeciesId;
+
+        return 0;
+    }
+}
 
 void BattlePetSpawnMgr::Initialise()
 {
     m_updateTimer = 0;
 
     m_battlePetMapPools.clear();
+    m_tamerBattlePetTemplates.clear();
+    for (auto&& tamerTeam : m_tamerBattlePetInfo)
+        for (auto battlePet : tamerTeam.second)
+            delete battlePet;
+    m_tamerBattlePetInfo.clear();
 
     uint32 oldMSTime = getMSTime();
 
@@ -110,10 +193,84 @@ void BattlePetSpawnMgr::Initialise()
     } while (result->NextRow());
 
     TC_LOG_INFO("server.loading", ">> Loaded %u battle pet spawns in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
+
+    oldMSTime = getMSTime();
+    count = 0;
+
+    QueryResult tamerResult = WorldDatabase.Query("SELECT tamerEntry, slot, creatureEntry, species, level, quality, breed FROM battle_pet_tamer_team ORDER BY tamerEntry, slot");
+    if (!tamerResult)
+    {
+        TC_LOG_ERROR("server.loading", ">> Loaded 0 battle pet tamer team definitions. DB table `battle_pet_tamer_team` is empty.");
+        return;
+    }
+
+    do
+    {
+        Field* fields = tamerResult->Fetch();
+        uint32 tamerEntry = fields[0].GetUInt32();
+        uint8 slot = fields[1].GetUInt8();
+        uint32 creatureEntry = fields[2].GetUInt32();
+        uint16 species = fields[3].GetUInt16();
+        uint8 level = fields[4].GetUInt8();
+        uint8 quality = fields[5].GetUInt8();
+        uint8 breed = fields[6].GetUInt8();
+
+        if (!IsBattlePetTamerEntry(tamerEntry))
+        {
+            TC_LOG_ERROR("server.loading", "Invalid tamer entry %u in `battle_pet_tamer_team`, skipping!", tamerEntry);
+            continue;
+        }
+
+        if (slot >= TAMER_MAX_TEAM_PETS)
+        {
+            TC_LOG_ERROR("server.loading", "Invalid slot %u for tamer entry %u in `battle_pet_tamer_team`, skipping!", slot, tamerEntry);
+            continue;
+        }
+
+        if (!species)
+            species = GetBattlePetSpeciesForCreature(creatureEntry);
+
+        auto speciesEntry = sBattlePetSpeciesStore.LookupEntry(species);
+        if (!speciesEntry)
+        {
+            TC_LOG_ERROR("server.loading", "Invalid species %u for tamer entry %u in `battle_pet_tamer_team`, skipping!", species, tamerEntry);
+            continue;
+        }
+
+        if (!level || level > BATTLE_PET_MAX_LEVEL)
+        {
+            TC_LOG_ERROR("server.loading", "Invalid level %u for tamer entry %u in `battle_pet_tamer_team`, skipping!", level, tamerEntry);
+            continue;
+        }
+
+        BattlePetTamerTeamTemplate battlePetTemplate;
+        battlePetTemplate.CreatureEntry = creatureEntry;
+        battlePetTemplate.Species = species;
+        battlePetTemplate.Level = level;
+        battlePetTemplate.Quality = quality;
+        battlePetTemplate.Breed = breed;
+
+        auto& tamerTeam = m_tamerBattlePetTemplates[tamerEntry];
+        if (tamerTeam.size() <= slot)
+            tamerTeam.resize(slot + 1);
+
+        tamerTeam[slot] = battlePetTemplate;
+        ++count;
+
+    } while (tamerResult->NextRow());
+
+    TC_LOG_INFO("server.loading", ">> Loaded %u battle pet tamer team pets in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
 }
 
 void BattlePetSpawnMgr::OnAddToMap(Creature* creature)
 {
+    if (IsBattlePetTamerEntry(creature->GetEntry()))
+    {
+        auto templates = m_tamerBattlePetTemplates.find(creature->GetEntry());
+        if (templates != m_tamerBattlePetTemplates.end() && !templates->second.empty())
+            creature->SetUInt32Value(UNIT_FIELD_WILD_BATTLE_PET_LEVEL, templates->second.front().Level);
+    }
+
     auto it = m_battlePetMapPools.find(creature->GetMapId());
     if (it == m_battlePetMapPools.end())
         return;
@@ -126,6 +283,14 @@ void BattlePetSpawnMgr::OnAddToMap(Creature* creature)
 
 void BattlePetSpawnMgr::OnRemoveFromMap(Creature* creature)
 {
+    auto tamerPet = m_tamerBattlePetInfo.find(creature->GetGUID());
+    if (tamerPet != m_tamerBattlePetInfo.end())
+    {
+        for (auto battlePet : tamerPet->second)
+            delete battlePet;
+        m_tamerBattlePetInfo.erase(tamerPet);
+    }
+
     if (!creature->IsInGrid() || creature->IsSummon())
         return;
 
@@ -213,11 +378,91 @@ BattlePet* BattlePetSpawnMgr::GetWildBattlePet(Creature* creature)
         if (spawnTemplate.WildBattlePetInfo.find(creature->GetGUID()) != spawnTemplate.WildBattlePetInfo.end())
             return spawnTemplate.WildBattlePetInfo[creature->GetGUID()];
 
+    if (IsBattlePetTamerEntry(creature->GetEntry()))
+    {
+        BattlePetTeamStore tamerPets;
+        GetTamerBattlePets(creature, tamerPets);
+        if (!tamerPets.empty())
+            return tamerPets.front();
+    }
+
     return nullptr;
+}
+
+void BattlePetSpawnMgr::GetTamerBattlePets(Creature* creature, BattlePetTeamStore& battlePets)
+{
+    if (!creature || !IsBattlePetTamerEntry(creature->GetEntry()))
+        return;
+
+    auto cachedTeam = m_tamerBattlePetInfo.find(creature->GetGUID());
+    if (cachedTeam != m_tamerBattlePetInfo.end())
+    {
+        battlePets = cachedTeam->second;
+        return;
+    }
+
+    auto templateItr = m_tamerBattlePetTemplates.find(creature->GetEntry());
+    if (templateItr == m_tamerBattlePetTemplates.end() || templateItr->second.empty())
+    {
+        TC_LOG_ERROR("battlepets", "Tamer %u has no configured battle pet team.", creature->GetEntry());
+
+        uint8 level = creature->GetUInt32Value(UNIT_FIELD_WILD_BATTLE_PET_LEVEL);
+        if (!level)
+            level = 1;
+
+        auto speciesEntry = sBattlePetSpeciesStore.LookupEntry(TAMER_FALLBACK_PET_SPECIES);
+        if (!speciesEntry)
+            return;
+
+        auto battlePet = new BattlePet(0, TAMER_FALLBACK_PET_SPECIES, speciesEntry->FamilyId, level, 1, sObjectMgr->BattlePetGetRandomBreed(TAMER_FALLBACK_PET_SPECIES));
+        battlePet->InitialiseAbilities(true);
+
+        BattlePetTeamStore fallbackTeam;
+        fallbackTeam.push_back(battlePet);
+        m_tamerBattlePetInfo[creature->GetGUID()] = fallbackTeam;
+        battlePets = fallbackTeam;
+        return;
+    }
+
+    BattlePetTeamStore tamerTeam;
+    for (auto const& petTemplate : templateItr->second)
+    {
+        if (!petTemplate.Species)
+            continue;
+
+        auto speciesEntry = sBattlePetSpeciesStore.LookupEntry(petTemplate.Species);
+        if (!speciesEntry)
+            continue;
+
+        uint8 breed = petTemplate.Breed ? petTemplate.Breed : sObjectMgr->BattlePetGetRandomBreed(petTemplate.Species);
+        uint8 quality = petTemplate.Quality ? petTemplate.Quality : sObjectMgr->BattlePetGetRandomQuality(petTemplate.Species);
+
+        auto battlePet = new BattlePet(0, petTemplate.Species, speciesEntry->FamilyId, petTemplate.Level, quality, breed);
+        battlePet->InitialiseAbilities(true);
+        tamerTeam.push_back(battlePet);
+    }
+
+    if (tamerTeam.empty())
+    {
+        TC_LOG_ERROR("battlepets", "Tamer %u configured battle pet team did not produce any valid pets.", creature->GetEntry());
+        return;
+    }
+
+    creature->SetUInt32Value(UNIT_FIELD_WILD_BATTLE_PET_LEVEL, tamerTeam.front()->GetLevel());
+    m_tamerBattlePetInfo[creature->GetGUID()] = tamerTeam;
+    battlePets = tamerTeam;
+}
+
+bool BattlePetSpawnMgr::IsTamerBattlePet(Creature* creature)
+{
+    return creature && IsBattlePetTamerEntry(creature->GetEntry());
 }
 
 void BattlePetSpawnMgr::EnteredBattle(Creature* creature)
 {
+    if (IsTamerBattlePet(creature))
+        return;
+
     // remove creature from world
     creature->ForcedDespawn();
     creature->SetRespawnTime(MONTH);
@@ -226,6 +471,18 @@ void BattlePetSpawnMgr::EnteredBattle(Creature* creature)
 
 void BattlePetSpawnMgr::LeftBattle(Creature* creature, bool killed)
 {
+    auto tamerPet = m_tamerBattlePetInfo.find(creature->GetGUID());
+    if (tamerPet != m_tamerBattlePetInfo.end())
+    {
+        for (auto battlePet : tamerPet->second)
+            battlePet->SetCurrentHealth(battlePet->GetMaxHealth());
+
+        creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PACIFIED | UNIT_FLAG_IMMUNE_TO_PC);
+        creature->SetControlled(false, UNIT_STATE_ROOT);
+        creature->SetTarget(ObjectGuid::Empty);
+        return;
+    }
+
     // wild pet battle defeated player or pet battle was abandoned
     if (!killed)
     {
@@ -334,12 +591,36 @@ void BattlePetSpawnZoneMgr::SpawnCreature(Map* map, ObjectGuid guid, BattlePetSp
     if (!speciesEntry)
         return;
 
+    float x = creature->GetPositionX();
+    float y = creature->GetPositionY();
+    float z = creature->GetPositionZ();
+    float o = creature->GetOrientation();
+
+    if (!Trinity::IsValidMapCoord(x, y, z, o))
+        creature->GetHomePosition(x, y, z, o);
+
+    if (!Trinity::IsValidMapCoord(x, y, z, o))
+        if (CreatureData const* data = creature->GetCreatureData())
+        {
+            x = data->posX;
+            y = data->posY;
+            z = data->posZ;
+            o = data->orientation;
+        }
+
+    if (!Trinity::IsValidMapCoord(x, y, z, o))
+    {
+        TC_LOG_ERROR("entities.unit", "BattlePetSpawnZoneMgr::SpawnCreature: skipped replacement for creature %s entry %u due invalid coordinates (X: %f, Y: %f, Z: %f, O: %f)",
+            creature->GetGUID().ToString().c_str(), creature->GetEntry(), x, y, z, o);
+        return;
+    }
+
     // initialise replacement creature
     Creature* replacementCreature = new Creature();
     replacementCreature->m_isTempWorldObject = true;
 
     if (!replacementCreature->Create(map->GenerateLowGuid<HighGuid::Unit>(), creature->GetMap(), creature->GetPhaseMask(),
-        speciesEntry->NpcId, 0, 0, creature->m_positionX, creature->m_positionY, creature->m_positionZ, creature->GetOrientation()))
+        speciesEntry->NpcId, 0, 0, x, y, z, o))
     {
         // something went wrong, delete newly created creature
         delete replacementCreature;
@@ -410,7 +691,7 @@ void BattlePetSpawnZoneMgr::RemoveCreature(Map* map, ObjectGuid guid, BattlePetS
     replacementCreature->RemoveFromWorld();
     replacementCreature->AddObjectToRemoveList();
 
-    spawnTemplate->CreaturesRelation.erase(spawnTemplate->CreaturesRelation[guid]);
+    spawnTemplate->CreaturesRelation.erase(guid);
 
     // allow original creature to spawn again
     creature->SetRespawnTime(creature->GetCreatureData()->spawntimesecs);

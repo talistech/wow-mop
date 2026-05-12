@@ -736,16 +736,21 @@ void WorldSession::HandlePetBattleRequestWild(WorldPacket& recvData)
         return;
     }
 
+    bool isTamerBattlePet = sBattlePetSpawnMgr->IsTamerBattlePet(wildBattlePet);
+
     if (!GetPlayer()->GetNPCIfCanInteractWith(petBattleRequest.OpponentGuid, UNIT_NPC_FLAG_WILDPET_CAPTURABLE))
     {
-        TC_LOG_DEBUG("network", "CMSG_PET_BATTLE_REQUEST_WILD - Player %u(%s) tried to initiate a wild pet battle but can't interact with opponent %u!",
-            GetPlayer()->GetGUID().GetCounter(), GetPlayer()->GetName().c_str(), wildBattlePet->GetGUID().GetCounter());
+        if (!isTamerBattlePet)
+        {
+            TC_LOG_DEBUG("network", "CMSG_PET_BATTLE_REQUEST_WILD - Player %u(%s) tried to initiate a wild pet battle but can't interact with opponent %u!",
+                GetPlayer()->GetGUID().GetCounter(), GetPlayer()->GetName().c_str(), wildBattlePet->GetGUID().GetCounter());
 
-        SendPetBattleRequestFailed(PET_BATTLE_REQUEST_NOT_VALID_TARGET);
-        return;
+            SendPetBattleRequestFailed(PET_BATTLE_REQUEST_NOT_VALID_TARGET);
+            return;
+        }
     }
 
-    // check if creature is a wild battle pet
+    // check if creature has battle pet data
     if (!sBattlePetSpawnMgr->GetWildBattlePet(wildBattlePet))
     {
         TC_LOG_DEBUG("network", "CMSG_PET_BATTLE_REQUEST_WILD - Player %u(%s) tried to initiate a wild pet battle but creature %u isn't a wild battle pet!",

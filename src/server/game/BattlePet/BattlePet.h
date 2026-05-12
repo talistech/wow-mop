@@ -348,7 +348,10 @@ public:
     void SetNickname(std::string nickname);
     void SetTimestamp(uint32 timestamp) { m_timestamp = timestamp; }
     void SetXP(uint16 xpGain);
+    void SetXPValue(uint16 xp);
     void SetLevel(uint8 level);
+    void SetQuality(uint8 quality);
+    void SetBreed(uint8 breed);
 
     uint8 GetDbState() const { return m_dbState; }
     void SetDbState(uint8 state) { m_dbState = state; }

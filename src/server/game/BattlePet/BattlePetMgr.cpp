@@ -191,10 +191,33 @@ void BattlePetMgr::LoadSlotsFromDb(PreparedQueryResult result)
 
     Field* fields = result->Fetch();
 
-    ObjectGuid slot1(HighGuid::BattlePet, fields[0].GetUInt32());
-    ObjectGuid slot2(HighGuid::BattlePet, fields[1].GetUInt32());
-    ObjectGuid slot3(HighGuid::BattlePet, fields[2].GetUInt32());
+    ObjectGuid slot1(fields[0].GetUInt64());
+    ObjectGuid slot2(fields[1].GetUInt64());
+    ObjectGuid slot3(fields[2].GetUInt64());
     m_loadoutFlags = fields[3].GetUInt8();
+
+    // Battle pet journal ids are persisted and sent to the client as the raw
+    // account_battle_pet.id value. Older code rebuilt a HighGuid::BattlePet
+    // ObjectGuid here, which made otherwise valid saved slots fail the journal
+    // lookup and caused the loadout to be cleared on logout.
+    auto normalizeSlot = [this](ObjectGuid slot) -> ObjectGuid
+    {
+        if (!slot || GetBattlePet(slot))
+            return slot;
+
+        if (slot.GetHigh() == HighGuid::BattlePet)
+        {
+            ObjectGuid counterOnly(uint64(slot.GetCounter()));
+            if (GetBattlePet(counterOnly))
+                return counterOnly;
+        }
+
+        return slot;
+    };
+
+    slot1 = normalizeSlot(slot1);
+    slot2 = normalizeSlot(slot2);
+    slot3 = normalizeSlot(slot3);
 
     // update flag and spell state for new alt characters
     if (m_loadoutFlags != BATTLE_PET_LOADOUT_SLOT_FLAG_NONE && !m_owner->HasFlag(PLAYER_FIELD_PLAYER_FLAGS, PLAYER_FLAGS_BATTLE_PET_ENABLED))
@@ -242,9 +265,9 @@ void BattlePetMgr::SaveSlotsToDb(CharacterDatabaseTransaction trans)
 
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_INS_ACCOUNT_BATTLE_PET_SLOTS);
     stmt->setUInt32(0, m_owner->GetSession()->GetAccountId());
-    stmt->setUInt64(1, GetLoadoutSlot(BATTLE_PET_LOADOUT_SLOT_1));
-    stmt->setUInt64(2, GetLoadoutSlot(BATTLE_PET_LOADOUT_SLOT_2));
-    stmt->setUInt64(3, GetLoadoutSlot(BATTLE_PET_LOADOUT_SLOT_3));
+    stmt->setUInt64(1, GetLoadoutSlot(BATTLE_PET_LOADOUT_SLOT_1).GetRawValue());
+    stmt->setUInt64(2, GetLoadoutSlot(BATTLE_PET_LOADOUT_SLOT_2).GetRawValue());
+    stmt->setUInt64(3, GetLoadoutSlot(BATTLE_PET_LOADOUT_SLOT_3).GetRawValue());
     stmt->setUInt8 (4, GetLoadoutFlags());
     trans->Append(stmt);
 
@@ -413,6 +436,15 @@ void BattlePetMgr::SetLoadoutFlag(uint8 flag)
         return;
 
     m_loadoutFlags |= flag;
+    m_loadoutSave = true;
+}
+
+void BattlePetMgr::ClearLoadoutFlag(uint8 flag)
+{
+    if (!HasLoadoutFlag(flag))
+        return;
+
+    m_loadoutFlags &= ~flag;
     m_loadoutSave = true;
 }
 
