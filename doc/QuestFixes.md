@@ -14,3 +14,4 @@ The Cataclysm prelude and Mount Hyjal fixes touch script hooks and world databas
 ## 2026-05-12 Battle Pet Trainers
 
 - Battle pet trainer NPCs, including Zonya the Sadist `66137`, explicitly keep gossip and questgiver flags while removing the capturable wild-pet flag. This keeps trainer clicks on the normal gossip/quest path instead of the client wild-pet interaction path.
+- Zonya quest `31815` now turns in at Zonya, and follow-up quest `31817` now turns in at Merda Stronghoof `66372`, matching the quest completion text.
