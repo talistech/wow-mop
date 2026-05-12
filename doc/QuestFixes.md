@@ -15,3 +15,9 @@ The Cataclysm prelude and Mount Hyjal fixes touch script hooks and world databas
 
 - Battle pet trainer NPCs, including Zonya the Sadist `66137`, explicitly keep gossip and questgiver flags while removing the capturable wild-pet flag. This keeps trainer clicks on the normal gossip/quest path instead of the client wild-pet interaction path.
 - Zonya quest `31815` now turns in at Zonya, and follow-up quest `31817` now turns in at Merda Stronghoof `66372`, matching the quest completion text.
+
+## 2026-05-12 Elemental Bonds: Doubt
+
+- Aggra creature template `53519` is assigned `npc_aggra_elemental_bonds_doubt` and explicitly keeps gossip flag `1` with gossip menu `12938`.
+- Gossip menu `12938`, option `0`, must use option type `1` and gossip flag `1`; leaving the option flag as `0` prevents the client from offering the "Aggra, I am ready to travel to the Abyssal Maw." choice.
+- Selecting the option grants quest `29327` objective credit `53518` to unblock "Protect Thrall from the elements."
