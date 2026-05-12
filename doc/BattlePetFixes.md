@@ -9,6 +9,7 @@ This set of fixes restores the battle pet onboarding flow, trainer battles, and 
 - Learning the Ropes and Level Up receive explicit quest credit from pet battle and pet level events.
 - On The Mend adds a temporary heal gossip option to Seikwa and Murog when the related quest is incomplete.
 - Battle pet tamers expose a server-side `Let's battle!` gossip option through `npc_battle_pet_tamer`.
+- Battle pet tamers use normal gossip, not the capturable wild-pet NPC flag, so trainer clicks open gossip and quest UI instead of client pet capture interaction.
 - Trainer battles load teams from `battle_pet_tamer_team`, allowing up to three configured pets per trainer.
 - Trainer AI swaps to the next living pet after the active pet is defeated.
 - Trainer pets cannot be trapped and are restored after the battle.

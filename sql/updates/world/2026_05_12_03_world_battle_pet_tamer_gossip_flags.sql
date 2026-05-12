@@ -1,6 +1,7 @@
--- Bind generic tamer gossip so quest-giver tamers expose a battle option.
--- Tamers must not use UNIT_NPC_FLAG_WILDPET_CAPTURABLE; that flag makes the
--- client treat the trainer as a capturable wild pet instead of opening gossip.
+-- Fix battle pet tamers that were accidentally flagged as capturable wild pets.
+-- The wild-pet flag causes the client to send pet capture interaction instead
+-- of opening normal gossip/quest UI, which can disconnect players on click.
+
 UPDATE `creature_template`
 SET `npcflag` = (`npcflag` | 1) & ~1073741824,
     `ScriptName` = 'npc_battle_pet_tamer'
@@ -11,6 +12,3 @@ WHERE `entry` IN
  66636, 66638, 66639, 66675, 66730, 66733, 66734, 66738, 66739, 66741,
  66815, 66819, 66822, 66824, 66918, 67370, 68462, 68463, 68464, 68465,
  73626);
-
--- Zunta is a Durotar tamer; bind the objective POI to the actual defeat objective.
-UPDATE `quest_poi` SET `QuestObjectiveId` = 269054 WHERE `QuestID` = 31818 AND `ObjectiveIndex` = 0;
