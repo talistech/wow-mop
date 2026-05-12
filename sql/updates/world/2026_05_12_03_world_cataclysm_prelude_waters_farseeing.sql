@@ -8,4 +8,5 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 UPDATE `creature` SET `phaseMask` = 2 WHERE `guid` = 293035 AND `id` = 54168 AND `map` = 1 AND `zoneId` = 616;
 
 -- Ensure Thrall exposes and handles the "I am ready." ceremony option for The Nordrassil Summit.
-UPDATE `creature_template` SET `ScriptName` = 'npc_thrall_nordrassil_summit' WHERE `entry` = 54313;
+UPDATE `creature_template` SET `npcflag` = `npcflag` | 1, `gossip_menu_id` = 12991, `ScriptName` = 'npc_thrall_nordrassil_summit' WHERE `entry` = 54313;
+UPDATE `gossip_menu_option` SET `OptionNpcflag` = 1 WHERE `MenuID` = 12991 AND `OptionID` = 0;
