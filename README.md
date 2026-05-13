@@ -232,6 +232,22 @@ The default bind address and port come from:
 - `WEB_ADMIN_BIND`
 - `WEB_ADMIN_PORT`
 
+Web admin includes a Teleports page for `.tele` waypoint management:
+
+- The page lists rows from `world.game_tele`.
+- Stock waypoints are protected from edits and deletes.
+- Custom web waypoints use the `web_` prefix.
+- New waypoints can be created from manual map/X/Y/Z/O coordinates or from a character's saved database position.
+- Add, edit, and delete actions run `.reload game_tele` afterward so the running worldserver sees the change without a restart.
+
+In game, GMs can still create a waypoint at their current position:
+
+```text
+.tele add web_example_name
+```
+
+Use names with letters, numbers, underscores, dots, or dashes. Avoid spaces so the waypoint is easy to use with `.tele web_example_name`.
+
 ## LAN Security
 
 This setup is intended for LAN-only use.
