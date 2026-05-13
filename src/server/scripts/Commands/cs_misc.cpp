@@ -131,6 +131,8 @@ public:
             { "commands",       SEC_PLAYER,     true,   &HandleCommandsCommand,     },
             { "cooldown",       SEC_GAMEMASTER, false,  &HandleCooldownCommand,     },
             { "damage",         SEC_GAMEMASTER, false,  &HandleDamageCommand,       },
+            { "damageaeo",      SEC_GAMEMASTER, false,  &HandleDamageAoeCommand,    },
+            { "damageaoe",      SEC_GAMEMASTER, false,  &HandleDamageAoeCommand,    },
             { "dev",            SEC_ADMINISTRATOR,  false,  &HandleDevCommand,          },
             { "die",            SEC_GAMEMASTER, false,  &HandleDieCommand,          },
             { "dismount",       SEC_PLAYER,     false,  &HandleDismountCommand,     },
@@ -3012,6 +3014,59 @@ public:
         return true;
     }
 
+    static bool HandleDamageAoeCommand(ChatHandler* handler, char const* args)
+    {
+        if (!*args)
+            return false;
+
+        char* damageStr = strtok((char*)args, " ");
+        if (!damageStr)
+            return false;
+
+        int32 damageInt = atoi(damageStr);
+        if (damageInt <= 0)
+            return false;
+
+        char* radiusStr = strtok(NULL, " ");
+        float radius = radiusStr ? float(atof(radiusStr)) : 15.0f;
+        if (radius <= 0.0f)
+            return false;
+
+        if (radius > 100.0f)
+            radius = 100.0f;
+
+        char* modeStr = strtok(NULL, " ");
+        bool includeUtilityCreatures = modeStr && strcmp(modeStr, "all") == 0;
+
+        Player* player = handler->GetSession()->GetPlayer();
+        std::list<Unit*> targets;
+        Trinity::AnyUnitInObjectRangeCheck check(player, radius);
+        Trinity::UnitListSearcher<Trinity::AnyUnitInObjectRangeCheck> searcher(player, targets, check);
+        player->VisitNearbyObject(radius, searcher);
+
+        uint32 damage = uint32(damageInt);
+        uint32 damaged = 0;
+        for (Unit* target : targets)
+        {
+            if (!target || target == player || !target->IsAlive() || target->GetTypeId() != TYPEID_UNIT)
+                continue;
+
+            Creature* creature = target->ToCreature();
+            if (!creature)
+                continue;
+
+            if (!includeUtilityCreatures && (creature->IsPet() || creature->IsGuardian() || creature->IsTotem() || creature->IsTrigger() || creature->IsSpiritService() || creature->GetCreatureType() == CREATURE_TYPE_CRITTER))
+                continue;
+
+            player->DealDamage(creature, damage, NULL, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, NULL, false);
+            player->SendAttackStateUpdate(HITINFO_AFFECTS_VICTIM, creature, 1, SPELL_SCHOOL_MASK_NORMAL, damage, 0, 0, VICTIMSTATE_HIT, 0);
+            ++damaged;
+        }
+
+        handler->PSendSysMessage("Applied %u damage to %u nearby creature(s) within %.1f yards%s.", damage, damaged, radius, includeUtilityCreatures ? " including utility creatures" : "");
+        return true;
+    }
+
     static bool HandleCombatStopCommand(ChatHandler* handler, char const* args)
     {
         Player* target = NULL;
@@ -4492,4 +4547,3 @@ void AddSC_misc_commandscript()
 {
     new misc_commandscript();
 }
-
