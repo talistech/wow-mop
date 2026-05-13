@@ -408,12 +408,13 @@ public:
     PetBattleTeam* Opponent() const { return m_teams[PET_BATTLE_TEAM_OPPONENT]; }
 
     uint8 GetTeamIndex(uint8 globalPetId) { return globalPetId < PET_BATTLE_MAX_TEAM_PETS ? PET_BATTLE_TEAM_CHALLANGER : PET_BATTLE_TEAM_OPPONENT; }
+    bool CanStart() const;
+    void SendFinalizeLocation(PetBattleRequest const& request);
 
     // TODO: This is shit
     void AddEffect(PetBattleEffect const& effect) { m_effects.push_back(effect); }
 
 private:
-    void SendFinalizeLocation(PetBattleRequest const& request);
     void SendInitialUpdate(Player* player);
     void SendFirstRound(Player* player);
     void SendRoundResult(Player* player);

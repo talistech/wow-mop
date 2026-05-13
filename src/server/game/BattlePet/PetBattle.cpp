@@ -22,6 +22,7 @@
 #include "Player.h"
 #include "QuestDef.h"
 #include "Random.h"
+#include "WorldSession.h"
 
 void PetBattleTeam::AddPlayer(Player* player)
 {
@@ -109,6 +110,9 @@ void PetBattleTeam::ActivePetPrepareCast(uint32 abilityId)
 
 bool PetBattleTeam::CanActivePetCast(uint32 abilityId) const
 {
+    if (!m_activePet)
+        return false;
+
     if (HasMultipleTurnAbility())
         return false;
 
@@ -146,6 +150,8 @@ uint8 PetBattleTeam::GetTrapStatus() const
         return PET_BATTLE_TRAP_STATUS_ALREADY_TRAPPED;
 
     auto team = m_petBattle->GetTeam(PET_BATTLE_TEAM_OPPONENT);
+    if (!team || !team->GetActivePet())
+        return PET_BATTLE_TRAP_STATUS_DISABLED;
 
     if (!team->GetActivePet()->IsAlive())
         return PET_BATTLE_TRAP_STATUS_CANT_TRAP_DEAD_PET;
@@ -163,6 +169,9 @@ uint8 PetBattleTeam::GetTrapStatus() const
 
 bool PetBattleTeam::CanSwap(BattlePet* battlePet, bool ignoreAlive) const
 {
+    if (!m_activePet)
+        return false;
+
     if (HasMultipleTurnAbility())
         return false;
 
@@ -196,6 +205,9 @@ bool PetBattleTeam::HasMultipleTurnAbility() const
 
 void PetBattleTeam::DoCasts(int8 procType)
 {
+    if (!m_activePet)
+        return;
+
     if (!m_activePet->IsAlive())
         return;
 
@@ -256,6 +268,9 @@ bool PetBattleTeam::IsValidBattlePet(BattlePet* battlePet) const
 uint8 PetBattleTeam::GetInputStatusFlags() const
 {
     uint8 flags = PET_BATTLE_TEAM_INPUT_FLAG_NONE;
+
+    if (!m_activePet)
+        return PET_BATTLE_TEAM_INPUT_FLAG_LOCK_ABILITY_1 | PET_BATTLE_TEAM_INPUT_FLAG_LOCK_ABILITY_2 | PET_BATTLE_TEAM_INPUT_FLAG_LOCK_PET_SWAP;
 
     // TODO: more checks probably required
     if (HasMultipleTurnAbility())
@@ -414,7 +429,7 @@ BattlePet* PetBattleTeam::GetPet(uint32 index)
 // -------------------------------------------------------------------------------
 
 PetBattle::PetBattle(uint32 battleId, PetBattleRequest const& request)
-    : m_battleId(battleId), m_type(request.Type), m_roundResult(PET_BATTLE_ROUND_RESULT_NONE)
+    : m_battleId(battleId), m_teams{ }, m_type(request.Type), m_roundResult(PET_BATTLE_ROUND_RESULT_NONE)
 {
     // FIXME
     auto challengerTeam = new PetBattleTeam(this, PET_BATTLE_TEAM_CHALLANGER);
@@ -438,14 +453,14 @@ PetBattle::PetBattle(uint32 battleId, PetBattleRequest const& request)
     
     m_teams[PET_BATTLE_TEAM_OPPONENT] = opponentTeam;
 
-    SendFinalizeLocation(request);
 }
 
 PetBattle::~PetBattle()
 {
     // clean up teams
     for (uint8 i = 0; i < PET_BATTLE_MAX_TEAMS; i++)
-        delete m_teams[i];
+        if (m_teams[i])
+            delete m_teams[i];
 }
 
 void PetBattle::StartBattle()
@@ -1036,6 +1051,39 @@ PetBattleTeam* PetBattle::GetTeam(PetBattleTeamIndex team) const
     return m_teams[team];
 }
 
+bool PetBattle::CanStart() const
+{
+    for (uint8 i = 0; i < PET_BATTLE_MAX_TEAMS; ++i)
+    {
+        PetBattleTeam* team = m_teams[i];
+        if (!team)
+        {
+            TC_LOG_ERROR("battlepets", "Pet battle %u cannot start: missing team %u.", m_battleId, i);
+            return false;
+        }
+
+        if (team->BattlePets.empty())
+        {
+            TC_LOG_ERROR("battlepets", "Pet battle %u cannot start: team %u has no pets.", m_battleId, i);
+            return false;
+        }
+
+        if (!team->GetActivePet())
+        {
+            TC_LOG_ERROR("battlepets", "Pet battle %u cannot start: team %u has no active pet.", m_battleId, i);
+            return false;
+        }
+    }
+
+    if (GetType() == PET_BATTLE_TYPE_PVE && !m_teams[PET_BATTLE_TEAM_OPPONENT]->GetWildBattlePet())
+    {
+        TC_LOG_ERROR("battlepets", "Pet battle %u cannot start: PvE opponent has no source creature.", m_battleId);
+        return false;
+    }
+
+    return true;
+}
+
 void PetBattle::SendFinalizeLocation(PetBattleRequest const& request)
 {
     WorldPacket data(SMSG_PET_BATTLE_FINALIZE_LOCATION, 100);
@@ -1067,7 +1115,12 @@ void PetBattle::SendInitialUpdate(Player * player)
     // only set wild battle pet guid if you are in a pve match
     ObjectGuid wildBattlePetGuid = ObjectGuid::Empty;
     if (GetType() == PET_BATTLE_TYPE_PVE)
-        wildBattlePetGuid = m_teams[PET_BATTLE_TEAM_OPPONENT]->GetWildBattlePet()->GetGUID();
+    {
+        if (Creature* wildBattlePet = m_teams[PET_BATTLE_TEAM_OPPONENT]->GetWildBattlePet())
+            wildBattlePetGuid = wildBattlePet->GetGUID();
+        else
+            TC_LOG_ERROR("battlepets", "Pet battle %u initial update has no PvE opponent creature.", m_battleId);
+    }
 
     WorldPacket data(SMSG_PET_BATTLE_INITIAL_UPDATE, 1000);
 
@@ -1654,12 +1707,21 @@ void PetBattleSystem::Create(PetBattleRequest const& request)
 {
     uint32 battleId = m_globalPetBattleId++;
     auto petBattle = new PetBattle{ battleId, request };
+    if (!petBattle->CanStart())
+    {
+        if (request.Challenger && request.Challenger->GetSession())
+            request.Challenger->GetSession()->SendPetBattleRequestFailed(PET_BATTLE_REQUEST_INVALID_TARGET);
+
+        delete petBattle;
+        return;
+    }
 
     m_playerPetBattles[request.Challenger->GetGUID()] = battleId;
     if (request.Type != PET_BATTLE_TYPE_PVE)
         m_playerPetBattles[request.Opponent->GetGUID()] = battleId;
 
     m_petBattles[battleId] = petBattle;
+    petBattle->SendFinalizeLocation(request);
 }
 
 void PetBattleSystem::Remove(PetBattle* petBattle)
