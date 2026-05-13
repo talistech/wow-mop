@@ -3314,13 +3314,18 @@ public:
 
     bool OnGossipHello(Player* player, Creature* creature) override
     {
-        if (creature->IsQuestGiver())
-            player->PrepareQuestMenu(creature->GetGUID());
+        if (sWorld->getBoolConfig(CONFIG_PET_BATTLES_ENABLED) && sBattlePetSpawnMgr->IsTamerBattlePet(creature) && HasIncompleteTamerQuest(player, creature))
+        {
+            StartTamerBattle(player, creature);
+            return true;
+        }
+
+        player->PrepareGossipMenu(creature, creature->GetGossipMenuId(), true);
 
         if (sWorld->getBoolConfig(CONFIG_PET_BATTLES_ENABLED) && sBattlePetSpawnMgr->IsTamerBattlePet(creature))
             player->ADD_GOSSIP_ITEM(GOSSIP_ICON_CHAT, "Let's battle!", GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
 
-        player->SEND_GOSSIP_MENU(player->GetGossipTextId(creature), creature->GetGUID());
+        player->SendPreparedGossip(creature);
         return true;
     }
 
@@ -3337,6 +3342,15 @@ public:
     }
 
 private:
+    static bool HasIncompleteTamerQuest(Player* player, Creature* tamer)
+    {
+        for (uint32 questId : sObjectMgr->GetCreatureQuestInvolvedRelations(tamer->GetEntry()))
+            if (player->GetQuestStatus(questId) == QUEST_STATUS_INCOMPLETE)
+                return true;
+
+        return false;
+    }
+
     static void StartTamerBattle(Player* player, Creature* tamer)
     {
         WorldSession* session = player->GetSession();
