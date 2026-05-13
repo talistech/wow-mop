@@ -74,6 +74,7 @@ struct BattlePetTamerTeamTemplate
     uint8 Level;
     uint8 Quality;
     uint8 Breed;
+    bool UsedFallbackSpecies;
 };
 
 typedef std::vector<BattlePetTamerTeamTemplate> BattlePetTamerTeamTemplateStore;

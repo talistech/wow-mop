@@ -37,6 +37,12 @@ void PetBattleTeam::AddPlayer(Player* player)
             continue;
 
         auto battlePet = player->GetBattlePetMgr().GetBattlePet(battlePetId);
+        if (!battlePet)
+        {
+            TC_LOG_ERROR("battlepets", "Player %u has stale battle pet loadout id %lu in slot %u.", player->GetGUID().GetCounter(), battlePetId, i);
+            continue;
+        }
+
         if (!battlePet->IsAlive())
             continue;
 
@@ -59,7 +65,11 @@ void PetBattleTeam::AddWildBattlePet(Creature* creature)
     else if (auto battlePet = sBattlePetSpawnMgr->GetWildBattlePet(creature))
         battlePets.push_back(battlePet);
 
-    ASSERT(!battlePets.empty());
+    if (battlePets.empty())
+    {
+        TC_LOG_ERROR("battlepets", "Creature %u (%u) has no battle pets for battle team.", creature->GetEntry(), creature->GetGUID().GetCounter());
+        return;
+    }
 
     for (auto battlePet : battlePets)
     {
@@ -213,6 +223,12 @@ void PetBattleTeam::GetAvaliablePets(BattlePetStore &avaliablePets) const
 
 void PetBattleTeam::SetActivePet(BattlePet* battlePet)
 {
+    if (!battlePet)
+    {
+        TC_LOG_ERROR("battlepets", "PetBattleTeam::SetActivePet called with null pet for team %u.", m_teamIndex);
+        return;
+    }
+
     m_activePet = battlePet;
 
     // alert client of active pet swap
@@ -387,9 +403,9 @@ int8 PetBattleTeam::ConvertToLocalIndex(int8 globalPetIndex) const
 
 BattlePet* PetBattleTeam::GetPet(uint32 index)
 {
-    if (index >= PET_BATTLE_MAX_TEAM_PETS)
+    if (index >= BattlePets.size())
     {
-        TC_LOG_ERROR("battlepets", "PetBattleTeam::GetPet invalid pet index %u", index);
+        TC_LOG_ERROR("battlepets", "PetBattleTeam::GetPet invalid pet index %u, team has " SZFMTD " pets.", index, BattlePets.size());
         return nullptr;
     }
     return BattlePets[index];

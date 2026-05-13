@@ -227,14 +227,20 @@ void BattlePetSpawnMgr::Initialise()
             continue;
         }
 
+        bool usedFallbackSpecies = false;
         if (!species)
             species = GetBattlePetSpeciesForCreature(creatureEntry);
 
         auto speciesEntry = sBattlePetSpeciesStore.LookupEntry(species);
         if (!speciesEntry)
         {
-            TC_LOG_ERROR("server.loading", "Invalid species %u for tamer entry %u in `battle_pet_tamer_team`, skipping!", species, tamerEntry);
-            continue;
+            TC_LOG_ERROR("server.loading", "Invalid species %u for tamer entry %u in `battle_pet_tamer_team`, using fallback species %u.", species, tamerEntry, TAMER_FALLBACK_PET_SPECIES);
+            species = TAMER_FALLBACK_PET_SPECIES;
+            speciesEntry = sBattlePetSpeciesStore.LookupEntry(species);
+            if (!speciesEntry)
+                continue;
+
+            usedFallbackSpecies = true;
         }
 
         if (!level || level > BATTLE_PET_MAX_LEVEL)
@@ -249,6 +255,7 @@ void BattlePetSpawnMgr::Initialise()
         battlePetTemplate.Level = level;
         battlePetTemplate.Quality = quality;
         battlePetTemplate.Breed = breed;
+        battlePetTemplate.UsedFallbackSpecies = usedFallbackSpecies;
 
         auto& tamerTeam = m_tamerBattlePetTemplates[tamerEntry];
         if (tamerTeam.size() <= slot)
@@ -432,10 +439,19 @@ void BattlePetSpawnMgr::GetTamerBattlePets(Creature* creature, BattlePetTeamStor
 
         auto speciesEntry = sBattlePetSpeciesStore.LookupEntry(petTemplate.Species);
         if (!speciesEntry)
+        {
+            TC_LOG_ERROR("battlepets", "Tamer %u has invalid battle pet species %u, skipping pet.", creature->GetEntry(), petTemplate.Species);
             continue;
+        }
 
         uint8 breed = petTemplate.Breed ? petTemplate.Breed : sObjectMgr->BattlePetGetRandomBreed(petTemplate.Species);
         uint8 quality = petTemplate.Quality ? petTemplate.Quality : sObjectMgr->BattlePetGetRandomQuality(petTemplate.Species);
+
+        if (petTemplate.UsedFallbackSpecies)
+        {
+            breed = sObjectMgr->BattlePetGetRandomBreed(petTemplate.Species);
+            quality = 1;
+        }
 
         auto battlePet = new BattlePet(0, petTemplate.Species, speciesEntry->FamilyId, petTemplate.Level, quality, breed);
         battlePet->InitialiseAbilities(true);
