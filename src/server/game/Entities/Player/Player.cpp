@@ -24,6 +24,7 @@
 #include "Battleground.h"
 #include "BattlegroundMgr.h"
 #include "BattlePetMgr.h"
+#include "BattlePetSpawnMgr.h"
 #include "CellImpl.h"
 #include "Channel.h"
 #include "ChannelMgr.h"
@@ -2730,7 +2731,15 @@ Creature* Player::GetNPCIfCanInteractWith(ObjectGuid guid, uint32 npcflagmask)
                     return nullptr;
 
     // not too far
-    if (!creature->IsWithinDistInMap(this, npcflagmask & UNIT_NPC_FLAG_WILDPET_CAPTURABLE ? PETBATTLE_INTERACTION_DIST : (creature->GetEntry() == 60166 || creature->GetEntry() == 60167) ? 9.6f : INTERACTION_DISTANCE))
+    float interactionDistance = INTERACTION_DISTANCE;
+    if (npcflagmask & UNIT_NPC_FLAG_WILDPET_CAPTURABLE)
+        interactionDistance = PETBATTLE_INTERACTION_DIST;
+    else if ((npcflagmask & UNIT_NPC_FLAG_GOSSIP) && sBattlePetSpawnMgr->IsTamerBattlePet(creature))
+        interactionDistance = PETBATTLE_INTERACTION_DIST;
+    else if (creature->GetEntry() == 60166 || creature->GetEntry() == 60167)
+        interactionDistance = 9.6f;
+
+    if (!creature->IsWithinDistInMap(this, interactionDistance))
         return nullptr;
 
     return creature;
