@@ -21,3 +21,9 @@ The Cataclysm prelude and Mount Hyjal fixes touch script hooks and world databas
 - Aggra creature template `53519` is assigned `npc_aggra_elemental_bonds_doubt` and explicitly keeps gossip flag `1` with gossip menu `12938`.
 - Gossip menu `12938`, option `0`, must use option type `1` and gossip flag `1`; leaving the option flag as `0` prevents the client from offering the "Aggra, I am ready to travel to the Abyssal Maw." choice.
 - Selecting the option grants quest `29327` objective credit `53518` to unblock "Protect Thrall from the elements."
+
+## 2026-05-13 Elemental Bonds: Doubt Cyclonas
+
+- Cyclonas creature template `53524` is assigned `npc_cyclonas_elemental_bonds_doubt` and explicitly keeps gossip flag `1` with gossip menu `12883`.
+- Gossip menu `12883`, option `0`, is restored as "I am ready, elemental. Take me to Thrall." with broadcast text `52127`, option type `1`, and gossip flag `1`.
+- Selecting the Cyclonas option also grants quest `29327` objective credit `53518`, covering players who are already at Cyclonas on the "Protect Thrall from the elements" step.
